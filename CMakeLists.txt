@@ -10,6 +10,8 @@ set(CMAKE_AUTORCC ON)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_FLAGS "-mwindows")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2")
 
 # QtCreator supports the following variables for Android, which are identical to qmake Android variables.
 # Check https://doc.qt.io/qt/deployment-android.html for more information.
@@ -24,7 +26,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 #    endif()
 #endif()
 
-find_package(QT NAMES Qt6 Qt5 COMPONENTS Widgets REQUIRED)
+find_package(QT NAMES Qt6 COMPONENTS Widgets REQUIRED)
 find_package(Qt${QT_VERSION_MAJOR} COMPONENTS Widgets REQUIRED)
 
 set(PROJECT_SOURCES
@@ -34,6 +36,8 @@ set(PROJECT_SOURCES
         mainwindow.ui
         mazewidget.cpp
         mazewidget.h
+        priorityqueue.h
+        priorityqueue.cpp
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)

@@ -10,6 +10,10 @@
 #include <QThread>
 #include <QDebug>
 #include <QQueue>
+#include <queue>
+#include <QtMath>
+
+#include "priorityqueue.h"
 
 struct CellDirection;
 
@@ -18,15 +22,23 @@ class MazeWidget : public QWidget
     Q_OBJECT
 public:
     explicit MazeWidget(QWidget *parent = nullptr);
+    ~MazeWidget();
     QSize sizeHint() const override;
+    QSize minimumSizeHint() const override;
     void createMaze();
     void searchMazeDFS();
     void searchMazeBFS();
+    void searchMazeBestFirstSearch();
     int searchMode = 0;
+
+    static int getGridSize();
+    static void setGridSize(int gridSize);
+    void setComplexity(int complexity);
 
 public slots:
     void searchDFSSlot();
     void searchBFSSlot();
+    void searchBestFirstSearchSlot();
     void resetSlot();
 
 protected:
@@ -36,12 +48,17 @@ protected:
 private:
     int *sections;
     int numSections;
-    int scale;
+    double cell_scale;
     int sectionsSize;
     QThread* searchThread;
+    static int gridSize;
+    static int scale;
+    static int sleep_time;
 
-    void initSections(int sections);
-    int getSection(int x, int y);
+    void initSections();
+    inline int getSection(int x, int y);
+    inline unsigned int getPriority(const int x, const int y);
+    void startThread();
 
 signals:
 

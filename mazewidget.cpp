@@ -1,29 +1,60 @@
 #include "mazewidget.h"
 
+int MazeWidget::gridSize = 64;
+int MazeWidget::scale = 640;
+int MazeWidget::sleep_time = 20;
+
 struct CellDirection {
+    // cell index
     int cell;
+
+    // wall side
     int direction;
+
+    // opposite wall side
     int backDirection;
 };
 
+// Runs the selected search algorithm
 void searchMazeThread(MazeWidget* mw) {
     if (mw->searchMode == 0) {
         mw->searchMazeDFS();
     } else if (mw->searchMode == 1) {
         mw->searchMazeBFS();
+    } else if (mw->searchMode == 2) {
+        mw->searchMazeBestFirstSearch();
     }
 }
 
-MazeWidget::MazeWidget(QWidget *parent) : QWidget(parent) {
-    searchThread = nullptr;
-    initSections(32);
-    createMaze();
-
-    scale = 20;
+inline unsigned int MazeWidget::getPriority(const int x, const int y) {
+    return 100 * (qFabs(x - numSections - 1) + qFabs(x - numSections - 1));
 }
 
-void MazeWidget::initSections(int numSections) {
-    this->numSections = numSections;
+void MazeWidget::startThread() {
+    if (searchThread != nullptr) {
+        searchThread->requestInterruption();
+        searchThread->wait(1000);
+        delete searchThread;
+    }
+    searchThread = QThread::create(searchMazeThread, this);
+    searchThread->start();
+}
+
+MazeWidget::MazeWidget(QWidget *parent) : QWidget(parent) {
+    setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    searchThread = nullptr;
+    initSections();
+    createMaze();
+}
+
+MazeWidget::~MazeWidget() {
+    delete [] sections;
+}
+
+// Initializes the array to hold the cells
+void MazeWidget::initSections() {
+    cell_scale = 1.0 * scale / gridSize;
+    this->numSections = gridSize;
     this->sectionsSize = numSections * numSections;
     this->sections = new int[sectionsSize];
 
@@ -32,21 +63,22 @@ void MazeWidget::initSections(int numSections) {
     // sections[0] = 0b1011;
 }
 
-int MazeWidget::getSection(int x, int y) {
+inline int MazeWidget::getSection(int x, int y) {
     return this->sections[y * numSections + x];
 }
 
 void MazeWidget::paintEvent(QPaintEvent *event) {
     QPainter painter(this);
+    int widgetSize = cell_scale * numSections;
 
     for (int i = 0; i < numSections; i++) {
         for (int j = 0; j < numSections; j++) {
-            if (sections[j * numSections + i] & 0b010000) painter.fillRect(QRect(scale * i, scale * j, scale, scale), QBrush(Qt::blue));
-            if (sections[j * numSections + i] & 0b100000) painter.fillRect(QRect(scale * i, scale * j, scale, scale), QBrush(Qt::green));
-            if (sections[j * numSections + i] & 0b000001) painter.drawLine(scale * i, scale * (j + 1), scale * (i + 1), scale * (j + 1));
-            if (sections[j * numSections + i] & 0b000010) painter.drawLine(scale * (i + 1), scale * j, scale * (i + 1), scale * (j + 1));
-            if (sections[j * numSections + i] & 0b000100) painter.drawLine(scale * i, scale * j, scale * (i + 1), scale * j);
-            if (sections[j * numSections + i] & 0b001000) painter.drawLine(scale * i, scale * j, scale * i, scale * (j + 1));
+            if (sections[j * numSections + i] & 0b010000) painter.fillRect(QRect(cell_scale * i, cell_scale * j, cell_scale, cell_scale), QBrush(Qt::blue));
+            if (sections[j * numSections + i] & 0b100000) painter.fillRect(QRect(cell_scale * i, cell_scale * j, cell_scale, cell_scale), QBrush(Qt::green));
+            if (sections[j * numSections + i] & 0b000001) painter.drawLine(cell_scale * i, cell_scale * (j + 1), cell_scale * (i + 1), cell_scale * (j + 1));
+            if (sections[j * numSections + i] & 0b000010) painter.drawLine(cell_scale * (i + 1), cell_scale * j, cell_scale * (i + 1), cell_scale * (j + 1));
+            if (sections[j * numSections + i] & 0b000100) painter.drawLine(cell_scale * i, cell_scale * j, cell_scale * (i + 1), cell_scale * j);
+            if (sections[j * numSections + i] & 0b001000) painter.drawLine(cell_scale * i, cell_scale * j, cell_scale * i, cell_scale * (j + 1));
         }
     }
 }
@@ -59,6 +91,7 @@ void MazeWidget::createMaze() {
     QStack<int> discovered;
     QSet<int> visited;
 
+    // Pick random cell to start from
     int initialCell = QRandomGenerator::global()->bounded(numSections);
     discovered.push(initialCell);
     visited.insert(initialCell);
@@ -136,7 +169,7 @@ void MazeWidget::searchMazeDFS() {
         }
 
         if (!unvisitedNeighbors.empty()) {
-            QThread::msleep(20);
+            QThread::msleep(sleep_time);
 
             sections[chosen] &= 0b011111;
             sections[chosen] |= 0b010000;
@@ -156,8 +189,7 @@ void MazeWidget::searchMazeDFS() {
         qDebug() << "Thread interrupted.";
         sections[section] &= 0b101111;
         sections[chosen] &= 0b011111;
-    } else
-        qDebug() << "Done.";
+    }
 }
 
 
@@ -193,7 +225,7 @@ void MazeWidget::searchMazeBFS() {
         }
 
         if (!unvisitedNeighbors.empty()) {
-            QThread::msleep(20);
+            QThread::msleep(sleep_time);
 
             sections[chosen] &= 0b011111;
             sections[chosen] |= 0b010000;
@@ -216,25 +248,115 @@ void MazeWidget::searchMazeBFS() {
     }
 }
 
+void MazeWidget::searchMazeBestFirstSearch() {
+    PriorityQueue discovered;
+    QSet<int> visited;
+
+    discovered.enqueue(0, getPriority(0, 0));
+    visited.insert(0);
+
+    int chosen = 0, section = 0;
+
+    while (!discovered.empty() && chosen != sectionsSize - 1 && !QThread::currentThread()->isInterruptionRequested()) {
+        section = discovered.dequeue();
+
+        QVector<int> unvisitedNeighbors;
+
+        // Cell above
+        if (section - numSections >= 0 && !(sections[section] & 0b0100) && !visited.contains(section - numSections)) {
+            unvisitedNeighbors.append(section - numSections);
+        }
+        // Cell below
+        if (section + numSections < sectionsSize && !(sections[section] & 0b0001) && !visited.contains(section + numSections)) {
+            unvisitedNeighbors.append(section + numSections);
+        }
+        // Cell left
+        if (section - 1 >= 0 && section % numSections != 0 && !(sections[section] & 0b1000) && !visited.contains(section - 1)) {
+            unvisitedNeighbors.append(section - 1);
+        }
+        // Cell right
+        if (section + 1 < sectionsSize && section % numSections != numSections - 1 && !(sections[section] & 0b0010) && !visited.contains(section + 1)) {
+            unvisitedNeighbors.append(section + 1);
+        }
+
+        if (!unvisitedNeighbors.empty()) {
+            QThread::msleep(sleep_time);
+
+            sections[chosen] &= 0b011111;
+            sections[chosen] |= 0b010000;
+
+            discovered.enqueue(section, getPriority(section % numSections, section / numSections));
+            chosen = unvisitedNeighbors.at(0);
+
+            sections[section] |= 0b010000;
+            sections[chosen] |= 0b100000;
+
+            visited.insert(chosen);
+            discovered.enqueue(chosen, getPriority(chosen % numSections, chosen / numSections));
+            update();
+        }
+    }
+    if (QThread::currentThread()->isInterruptionRequested()) {
+        qDebug() << "Thread interrupted.";
+        sections[section] &= 0b101111;
+        sections[chosen] &= 0b011111;
+    }
+}
+
+int MazeWidget::getGridSize() {
+    return gridSize;
+}
+
+void MazeWidget::setGridSize(int newGridSize) {
+    gridSize = newGridSize;
+}
+
+void MazeWidget::setComplexity(int complexity) {
+    if (getGridSize() != complexity) {
+        setGridSize(complexity);
+        if (searchThread != nullptr) {
+            searchThread->requestInterruption();
+            searchThread->wait(1000);
+            delete searchThread;
+            searchThread = nullptr;
+        }
+
+        delete [] sections;
+
+        initSections();
+        createMaze();
+    }
+}
+
 QSize MazeWidget::sizeHint() const {
-    return QSize(scale * numSections * 1.2, scale * numSections * 1.2 );
+    return QSize(qCeil(1.0 * cell_scale * numSections) + 1, qCeil(1.0 * cell_scale * numSections) + 1);
+}
+
+QSize MazeWidget::minimumSizeHint() const {
+    return QSize(qCeil(1.0 * cell_scale * numSections) + 1, qCeil(1.0 * cell_scale * numSections) + 1);
 }
 
 void MazeWidget::searchDFSSlot() {
     searchMode = 0;
-    searchThread = QThread::create(searchMazeThread, this);
-    searchThread->start();
+    startThread();
 }
 
 void MazeWidget::searchBFSSlot() {
     searchMode = 1;
-    searchThread = QThread::create(searchMazeThread, this);
-    searchThread->start();
+    startThread();
+}
+
+void MazeWidget::searchBestFirstSearchSlot() {
+    searchMode = 2;
+    startThread();
 }
 
 void MazeWidget::resetSlot() {
-    if (searchThread != nullptr && searchThread->isRunning()) {
+    if (searchThread != nullptr) {
         searchThread->requestInterruption();
+        searchThread->wait(1000);
+        delete searchThread;
+        searchThread = nullptr;
     }
     createMaze();
 }
